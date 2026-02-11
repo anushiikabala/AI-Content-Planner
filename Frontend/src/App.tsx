@@ -26,56 +26,53 @@ export default function App() {
   };
 
   const handleGenerate = async (formData: FormData, isSample: boolean) => {
-    setIsLoading(true);
-    setPlan(null);
-    setShowAiProgress(true);
-    setAiProgressStep(0);
+  setIsLoading(true);
+  setPlan(null);
+  setShowAiProgress(true);
+  setAiProgressStep(0);
 
-    // AI Progress steps
-    const steps = [
-      { step: 0, delay: 1000 },
-      { step: 1, delay: 1200 },
-      { step: 2, delay: 1500 },
-      { step: 3, delay: 1000 },
-      { step: 4, delay: 800 }
-    ];
+  const steps = [
+    { step: 0, delay: 1000 },
+    { step: 1, delay: 1200 },
+    { step: 2, delay: 1500 },
+    { step: 3, delay: 1000 },
+    { step: 4, delay: 800 }
+  ];
 
-    for (let i = 0; i < steps.length; i++) {
-      setAiProgressStep(steps[i].step);
-      await new Promise(resolve => setTimeout(resolve, steps[i].delay));
+  for (let i = 0; i < steps.length; i++) {
+    setAiProgressStep(steps[i].step);
+    await new Promise(resolve => setTimeout(resolve, steps[i].delay));
+  }
+
+  try {
+    const response = await fetch("http://127.0.0.1:5000/generate-plan", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        form_data: formData,
+        is_sample: isSample
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Backend error");
     }
 
-    // Generate mock plan
-    const mockPlan = generateMockPlan();
-    
-    // Adjust based on form data
-    if (isSample) {
-      mockPlan.days = mockPlan.days.slice(0, 7);
-      mockPlan.analytics.total_posts = 7;
-    } else {
-      mockPlan.days = mockPlan.days.slice(0, formData.planLength);
-      mockPlan.analytics.total_posts = formData.planLength;
-    }
+    setPlan(data);
 
-    // Update metadata from form
-    mockPlan.metadata = {
-      niche: formData.niche,
-      platforms: Object.entries(formData.platforms)
-        .filter(([_, enabled]) => enabled)
-        .map(([platform]) => platform.charAt(0).toUpperCase() + platform.slice(1)),
-      tone: formData.tone,
-      start_date: formData.startDate,
-      creator_name: formData.creatorName,
-      audience: formData.audience,
-      region: formData.region,
-      content_goals: formData.contentGoals
-    };
+  } catch (error) {
+    console.error("Error generating plan:", error);
+    alert("Backend connection failed. Is Flask running?");
+  }
 
-    setPlan(mockPlan);
-    setIsLoading(false);
-    setShowAiProgress(false);
-    setLoadingStep('');
-  };
+  setIsLoading(false);
+  setShowAiProgress(false);
+  setLoadingStep('');
+};
 
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 transition-colors">

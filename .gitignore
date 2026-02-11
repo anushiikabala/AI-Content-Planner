@@ -1,0 +1,51 @@
+# =========================
+# PYTHON / BACKEND
+# =========================
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+
+# Environment variables (VERY IMPORTANT)
+.env
+
+# Machine learning model files
+*.pkl
+*.joblib
+
+# Logs
+*.log
+
+# =========================
+# CREWAI / AI CACHE
+# =========================
+.cache/
+.crew/
+
+# =========================
+# FRONTEND (REACT)
+# =========================
+node_modules/
+build/
+dist/
+
+# Vite cache
+.vite/
+
+# =========================
+# EDITOR FILES
+# =========================
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# =========================
+# OS FILES
+# =========================
+*.swp
+*.swo

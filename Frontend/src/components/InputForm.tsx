@@ -153,6 +153,7 @@ export function InputForm({ onGenerate, isLoading, loadingStep }: InputFormProps
   };
 
   return (
+    
     <div className="bg-white dark:bg-zinc-900 rounded-2xl shadow-lg border border-zinc-200 dark:border-zinc-800">
       {/* Header - Always visible on mobile */}
       <div
