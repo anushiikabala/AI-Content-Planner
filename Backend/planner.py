@@ -322,41 +322,128 @@ Return ONLY JSON. No extra text.
 
 
 # ----------------------------
-# Stage 5: Language localization (CREATIVE — Sonnet)
+# Stage 5: Language localization — core narrative + captions (CREATIVE — Sonnet)
 # ----------------------------
-def _localize_content(payload: dict, hooks: List[str], captions: Dict[str, str]) -> Dict[str, Any]:
-    languages = [l for l in payload["languages"] if l != "english" and l in LANGUAGE_INSTRUCTIONS]
-    if not languages:
-        return {}
-
-    lang_block = "\n".join(f"- {l}: {LANGUAGE_INSTRUCTIONS[l]}" for l in languages)
+def _localize_core_one(payload: dict, core: Dict[str, Any], captions: Dict[str, str], lang: str) -> Dict[str, Any]:
+    caption_keys = list(captions.keys())
+    hooks = core.get("hooks", [])
+    reel_script = core.get("reel_script", {})
+    num_scenes = len(reel_script.get("scenes", []))
+    shot_sequence = core.get("shot_sequence", [])
 
     system = (
-        "You are a bilingual/multilingual creator localizing your OWN content into other "
-        "languages you speak natively. You are NOT a translator — write each version as if "
-        "it's your own original caption in that language/style, matching the same meaning "
-        "and energy as the source, not a stiff conversion. Output STRICT JSON only."
+        "You are a bilingual/multilingual creator localizing your OWN content into another "
+        "language you speak natively. You are NOT a translator — write it as if it's your own "
+        "original content in that language/style, matching the same meaning and energy as the "
+        "source, not a stiff conversion. Output STRICT JSON only."
     )
     user = f"""
 Here is the FINAL, locked content — do not change its meaning or add new ideas, just localize it:
 
 Hooks: {json.dumps(hooks)}
+Reel script: {json.dumps(reel_script, indent=2)}
+Voiceover script: {core.get('voiceover_script', '')}
+Shot sequence: {json.dumps(shot_sequence)}
+Journal entry: {core.get('journal_entry', '')}
 Captions: {json.dumps(captions, indent=2)}
 
-Localize into these language styles:
-{lang_block}
+Localize into this language style — {lang}: {LANGUAGE_INSTRUCTIONS[lang]}
 
-Output JSON with EXACT top-level keys: {languages}
-Each key maps to an object with:
-- hooks: list matching the same number and order as the input hooks, localized
-- captions: object with the SAME style keys as the input captions, localized
+Output a single JSON object with keys:
+- hooks: list of exactly {len(hooks)} items, same order, localized
+- reel_script: object with keys opening, scenes (list of exactly {num_scenes} items), ending
+- voiceover_script: string
+- shot_sequence: list of exactly {len(shot_sequence)} items, same order
+- journal_entry: string
+- captions: object with EXACTLY these keys, unchanged, do NOT translate/rename/omit
+  any of them, only translate the VALUES: {caption_keys}
+
+CRITICAL: preserve exact list lengths and key names for every field above. Only
+translate/localize the actual text content, never the structure.
 
 Return ONLY JSON. No extra text.
 """
     txt = _call_llm(
-        system, user, temperature=0.75, max_tokens=2200, stage="localize_content", prefill="{", model=MODEL_SONNET
+        system, user, temperature=0.75, max_tokens=2200, stage=f"localize_core:{lang}", prefill="{", model=MODEL_SONNET
     )
-    return _unwrap_dict(_extract_json(txt), "localize_content")
+    data = _unwrap_dict(_extract_json(txt), f"localize_core:{lang}")
+
+    got_keys = set(data.get("captions", {}).keys())
+    missing = set(caption_keys) - got_keys
+    if missing:
+        print(f"⚠️  [localize_core:{lang}] missing caption styles: {missing}")
+    return data
+
+
+def _localize_core(payload: dict, core: Dict[str, Any], captions: Dict[str, str]) -> Dict[str, Any]:
+    languages = [l for l in payload["languages"] if l != "english" and l in LANGUAGE_INSTRUCTIONS]
+    if not languages:
+        return {}
+
+    result = {}
+    for lang in languages:
+        try:
+            result[lang] = _localize_core_one(payload, core, captions, lang)
+        except Exception as e:
+            print(f"⚠️  [localize_core:{lang}] failed, skipping this language: {e}")
+    return result
+
+
+# ----------------------------
+# Stage 6: Language localization — music + repurposed content (CREATIVE — Sonnet)
+# ----------------------------
+def _localize_extras_one(payload: dict, music_suggestions: List[Dict[str, str]], repurposed_content: Dict[str, Any], lang: str) -> Dict[str, Any]:
+    repurposed_keys = list(repurposed_content.keys())
+
+    system = (
+        "You are a bilingual/multilingual creator localizing your OWN content into another "
+        "language you speak natively. You are NOT a translator — write it as if it's your own "
+        "original content in that language/style. Output STRICT JSON only."
+    )
+    user = f"""
+Here is the FINAL, locked content — do not change its meaning or add new ideas, just localize it:
+
+Music suggestions (only localize the "suggestion" text, keep "vibe" as-is):
+{json.dumps(music_suggestions, indent=2)}
+
+Repurposed content:
+{json.dumps(repurposed_content, indent=2)}
+
+Localize into this language style — {lang}: {LANGUAGE_INSTRUCTIONS[lang]}
+
+Output a single JSON object with keys:
+- music_suggestions: list of exactly {len(music_suggestions)} objects, each with
+  keys "vibe" (keep unchanged) and "suggestion" (localized)
+- repurposed_content: object with EXACTLY these keys, unchanged, do NOT
+  rename/omit any of them: {repurposed_keys}. Preserve whether each value is a
+  string or a list, and preserve list lengths exactly — only translate content.
+
+Return ONLY JSON. No extra text.
+"""
+    txt = _call_llm(
+        system, user, temperature=0.75, max_tokens=2200, stage=f"localize_extras:{lang}", prefill="{", model=MODEL_SONNET
+    )
+    data = _unwrap_dict(_extract_json(txt), f"localize_extras:{lang}")
+
+    got_keys = set(data.get("repurposed_content", {}).keys())
+    missing = set(repurposed_keys) - got_keys
+    if missing:
+        print(f"⚠️  [localize_extras:{lang}] missing repurposed_content keys: {missing}")
+    return data
+
+
+def _localize_extras(payload: dict, music_suggestions: List[Dict[str, str]], repurposed_content: Dict[str, Any]) -> Dict[str, Any]:
+    languages = [l for l in payload["languages"] if l != "english" and l in LANGUAGE_INSTRUCTIONS]
+    if not languages or (not music_suggestions and not repurposed_content):
+        return {}
+
+    result = {}
+    for lang in languages:
+        try:
+            result[lang] = _localize_extras_one(payload, music_suggestions, repurposed_content, lang)
+        except Exception as e:
+            print(f"⚠️  [localize_extras:{lang}] failed, skipping this language: {e}")
+    return result
 
 
 # ----------------------------
@@ -378,18 +465,35 @@ def generate_content_pack(payload: dict) -> Dict[str, Any]:
     seo_music = _seo_and_music(payload)
     editing_repurpose = _editing_and_repurpose(payload)
 
-    hooks_en = core.get("hooks", [])
-    localized = _localize_content(payload, hooks_en, captions_en)
+    music_en = seo_music.get("music_suggestions", [])
+    repurposed_en = editing_repurpose.get("repurposed_content", {})
 
-    # Merge English + localized versions
-    hooks_final = {"english": hooks_en}
+    localized_core = _localize_core(payload, core, captions_en)
+    localized_extras = _localize_extras(payload, music_en, repurposed_en)
+
+    # ---- Merge English + localized versions for every section that supports language ----
+    hooks_final = {"english": core.get("hooks", [])}
+    reel_script_final = {"english": core.get("reel_script", {})}
+    voiceover_final = {"english": core.get("voiceover_script", "")}
+    shot_sequence_final = {"english": core.get("shot_sequence", [])}
+    journal_final = {"english": core.get("journal_entry", "")}
     captions_final = {style: {"english": text} for style, text in captions_en.items()}
+    music_final = {"english": music_en}
+    repurposed_final = {"english": repurposed_en}
 
-    for lang, content in localized.items():
+    for lang, content in localized_core.items():
         hooks_final[lang] = content.get("hooks", [])
+        reel_script_final[lang] = content.get("reel_script", {})
+        voiceover_final[lang] = content.get("voiceover_script", "")
+        shot_sequence_final[lang] = content.get("shot_sequence", [])
+        journal_final[lang] = content.get("journal_entry", "")
         for style, text in content.get("captions", {}).items():
             if style in captions_final:
                 captions_final[style][lang] = text
+
+    for lang, content in localized_extras.items():
+        music_final[lang] = content.get("music_suggestions", [])
+        repurposed_final[lang] = content.get("repurposed_content", {})
 
     return {
         "metadata": {
@@ -400,13 +504,13 @@ def generate_content_pack(payload: dict) -> Dict[str, Any]:
             "languages": payload["languages"],
         },
         "hooks": hooks_final,
-        "reel_script": core.get("reel_script", {}),
-        "voiceover_script": core.get("voiceover_script", ""),
-        "shot_sequence": core.get("shot_sequence", []),
-        "journal_entry": core.get("journal_entry", ""),
+        "reel_script": reel_script_final,
+        "voiceover_script": voiceover_final,
+        "shot_sequence": shot_sequence_final,
+        "journal_entry": journal_final,
         "captions": captions_final,
-        "hashtags": seo_music.get("hashtags", {}),
-        "music_suggestions": seo_music.get("music_suggestions", []),
-        "editing_suggestions": editing_repurpose.get("editing_suggestions", {}),
-        "repurposed_content": editing_repurpose.get("repurposed_content", {}),
+        "hashtags": seo_music.get("hashtags", {}),  # English-only: hashtags aren't localized
+        "music_suggestions": music_final,
+        "editing_suggestions": editing_repurpose.get("editing_suggestions", {}),  # English-only: internal/technical
+        "repurposed_content": repurposed_final,
     }
